@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2021, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2021, NVIDIA CORPORATION.  All rights reserved.
 #
 # NVIDIA CORPORATION and its licensors retain all intellectual property
 # and proprietary rights in and to this software, related documentation
@@ -23,6 +23,10 @@ from torch_utils.ops import grid_sample_gradfix
 
 import legacy
 from metrics import metric_main
+
+from pathlib import Path
+import urllib.request
+
 
 #----------------------------------------------------------------------------
 
@@ -83,6 +87,7 @@ def save_image_grid(img, fname, drange, grid_size):
     if C == 3:
         PIL.Image.fromarray(img, 'RGB').save(fname)
 
+
 #----------------------------------------------------------------------------
 
 def training_loop(
@@ -121,6 +126,9 @@ def training_loop(
     progress_fn             = None,     # Callback function for updating training progress. Called for all ranks.
 ):
     # Initialize.
+    last_file_size = -1
+    FILE_SIZE_CHANGE_FACTOR_WARN_LEVEL = 0.2
+    WARN_ENDPOINT = "https://maker.ifttt.com/trigger/training_alert/with/key/cLJTlNn0bcZVapLWPsqYaj"
     start_time = time.time()
     device = torch.device('cuda', rank)
     np.random.seed(random_seed * num_gpus + rank)
@@ -348,7 +356,16 @@ def training_loop(
         # Save image snapshot.
         if (rank == 0) and (image_snapshot_ticks is not None) and (done or cur_tick % image_snapshot_ticks == 0):
             images = torch.cat([G_ema(z=z, c=c, noise_mode='const').cpu() for z, c in zip(grid_z, grid_c)]).numpy()
-            save_image_grid(images, os.path.join(run_dir, f'fakes{cur_nimg//1000:06d}.jpg'), drange=[-1,1], grid_size=grid_size)
+            out_file_name = os.path.join(run_dir, f'fakes{cur_nimg//1000:06d}.jpg')
+            save_image_grid(images, out_file_name, drange=[-1,1], grid_size=grid_size)
+            curr_file_size = Path(out_file_name).stat().st_size
+            if last_file_size > -1: 
+                file_size_diff = abs(curr_file_size - last_file_size)
+                byte_count_change_warn_level = curr_file_size * FILE_SIZE_CHANGE_FACTOR_WARN_LEVEL
+                if file_size_diff >= byte_count_change_warn_level:      
+                    f = urllib.request.urlopen(WARN_ENDPOINT)
+                print(f"{out_file_name}: {curr_file_size} bytes")
+            last_file_size = curr_file_size
 
         # Save network snapshot.
         snapshot_pkl = None
