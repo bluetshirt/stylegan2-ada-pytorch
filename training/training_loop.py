@@ -27,6 +27,43 @@ from metrics import metric_main
 from pathlib import Path
 import urllib.request
 
+import ftplib
+import ssl
+import os
+import sys
+
+class ImplicitFTP_TLS(ftplib.FTP_TLS):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._sock = None
+
+    @property
+    def sock(self):
+        return self._sock
+
+    @sock.setter
+    def sock(self, value):
+        if value is not None and not isinstance(value, ssl.SSLSocket):
+            value = self.context.wrap_socket(value)
+        self._sock = value
+
+    def start(self, host, port, user, passwd):
+        self.connect(host, int(port))
+        self.login(user, passwd)
+        self.prot_p()
+    
+    def upload(self, filename):
+        just_name = os.path.split(filename)[-1]
+        with open(filename, 'rb') as infile: 
+            try:
+                self.storbinary(f'STOR {just_name}', infile)
+            except OSError as err:
+                if str(err) != "[Errno 0] Error":
+                    raise
+
+
+#ftps.nlst()
+
 
 #----------------------------------------------------------------------------
 
@@ -124,11 +161,16 @@ def training_loop(
     allow_tf32              = False,    # Enable torch.backends.cuda.matmul.allow_tf32 and torch.backends.cudnn.allow_tf32?
     abort_fn                = None,     # Callback function for determining whether to abort training. Must return consistent results across ranks.
     progress_fn             = None,     # Callback function for updating training progress. Called for all ranks.
+    warn_endpoint = None, 
+    upload_host = None,
+    upload_port = None,
+    upload_user = None, 
+    upload_passwd = None
 ):
     # Initialize.
     last_file_size = -1
     FILE_SIZE_CHANGE_FACTOR_WARN_LEVEL = 0.2
-    WARN_ENDPOINT = "https://maker.ifttt.com/trigger/training_alert/with/key/cLJTlNn0bcZVapLWPsqYaj"
+
     start_time = time.time()
     device = torch.device('cuda', rank)
     np.random.seed(random_seed * num_gpus + rank)
@@ -363,7 +405,7 @@ def training_loop(
                 file_size_diff = abs(curr_file_size - last_file_size)
                 byte_count_change_warn_level = curr_file_size * FILE_SIZE_CHANGE_FACTOR_WARN_LEVEL
                 if file_size_diff >= byte_count_change_warn_level:      
-                    f = urllib.request.urlopen(WARN_ENDPOINT)
+                    f = urllib.request.urlopen(warn_endpoint)
                 print(f"{out_file_name}: {curr_file_size} bytes")
             last_file_size = curr_file_size
 
@@ -383,6 +425,12 @@ def training_loop(
             if rank == 0:
                 with open(snapshot_pkl, 'wb') as f:
                     pickle.dump(snapshot_data, f)
+                ftps = ImplicitFTP_TLS()
+                ftps.start(upload_host, upload_port, upload_user, upload_passwd)
+                ftps.upload(snapshot_pkl)
+                ftps.close()
+
+            
 
         # Evaluate metrics.
         if (snapshot_data is not None) and (len(metrics) > 0):
