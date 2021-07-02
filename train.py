@@ -68,9 +68,22 @@ def setup_training_loop_kwargs(
     allow_tf32 = None, # Allow PyTorch to use TF32 for matmul and convolutions: <bool>, default = False
     nobench    = None, # Disable cuDNN benchmarking: <bool>, default = False
     workers    = None, # Override number of DataLoader workers: <int>, default = 3
+    
+    warn_endpoint = None, 
+    upload_host = None,
+    upload_port = None,
+    upload_user = None, 
+    upload_passwd = None
+    
 ):
     args = dnnlib.EasyDict()
 
+    args.warn_endpoint = warn_endpoint
+    args.upload_host = upload_host
+    args.upload_port = upload_port
+    args.upload_user = upload_user
+    args.upload_passwd = upload_passwd
+    
     # ------------------------------------------
     # General options: gpus, snap, metrics, seed
     # ------------------------------------------
@@ -178,7 +191,8 @@ def setup_training_loop_kwargs(
         'paper1024':     dict(ref_gpus=8,  kimg=25000,  mb=32, mbstd=4,  fmaps=1,   lrate=0.002,  gamma=2,    ema=10,  ramp=None, map=8),
         'cifar':         dict(ref_gpus=2,  kimg=100000, mb=64, mbstd=32, fmaps=0.5, lrate=0.0025, gamma=0.01, ema=500, ramp=0.05, map=2),
         'cifarbaseline': dict(ref_gpus=2,  kimg=100000, mb=64, mbstd=32, fmaps=0.5, lrate=0.0025, gamma=0.01, ema=500, ramp=0.05, map=8),
-        'grinnygrant': dict(ref_gpus=4,  kimg=25000, mb=16, mbstd=4, fmaps=1, lrate=0.002, gamma=10, ema=10, ramp=None, map=8)
+        'grinnygrant-2': dict(ref_gpus=2,  kimg=25000, mb=16, mbstd=4, fmaps=1, lrate=0.002, gamma=10, ema=10, ramp=None, map=8),
+        'grinnygrant-4': dict(ref_gpus=2,  kimg=25000, mb=16, mbstd=4, fmaps=1, lrate=0.002, gamma=10, ema=10, ramp=None, map=8)
     }
 
     assert cfg in cfg_specs
@@ -413,6 +427,7 @@ def subprocess_fn(rank, args, temp_dir):
         custom_ops.verbosity = 'none'
 
     # Execute training loop.
+    
     training_loop.training_loop(rank=rank, **args)
 
 #----------------------------------------------------------------------------
@@ -447,7 +462,7 @@ class CommaSeparatedList(click.ParamType):
 @click.option('--mirrory', help='Augment dataset with y-flips (default: false)', type=bool, metavar='BOOL')
 
 # Base config.
-@click.option('--cfg', help='Base config [default: auto]', type=click.Choice(['auto', '11gb-gpu','11gb-gpu-complex', '24gb-gpu','24gb-gpu-complex', '48gb-gpu','48gb-2gpu', 'stylegan2', 'paper256', 'paper512', 'paper1024', 'cifar', 'cifarbaseline', 'aydao', 'grinnygrant']))
+@click.option('--cfg', help='Base config [default: auto]', type=click.Choice(['auto', '11gb-gpu','11gb-gpu-complex', '24gb-gpu','24gb-gpu-complex', '48gb-gpu','48gb-2gpu', 'stylegan2', 'paper256', 'paper512', 'paper1024', 'cifar', 'cifarbaseline', 'aydao', 'grinnygrant-2', 'grinnygrant-4']))
 @click.option('--lrate', help='Override learning rate', type=float, metavar='FLOAT')
 @click.option('--gamma', help='Override R1 gamma', type=float)
 @click.option('--kimg', help='Override training duration', type=int, metavar='INT')
@@ -471,6 +486,12 @@ class CommaSeparatedList(click.ParamType):
 @click.option('--nobench', help='Disable cuDNN benchmarking', type=bool, metavar='BOOL')
 @click.option('--allow-tf32', help='Allow PyTorch to use TF32 internally', type=bool, metavar='BOOL')
 @click.option('--workers', help='Override number of DataLoader workers', type=int, metavar='INT')
+
+@click.option('--warn_endpoint', required=True)
+@click.option('--upload-host', required=True)
+@click.option('--upload-port', required=True)
+@click.option('--upload-user', required=True)
+@click.option('--upload-passwd', required=True)
 
 def main(ctx, outdir, dry_run, **config_kwargs):
     """Train a GAN using the techniques described in the paper
