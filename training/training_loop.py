@@ -425,12 +425,19 @@ def training_loop(
             if rank == 0:
                 with open(snapshot_pkl, 'wb') as f:
                     pickle.dump(snapshot_data, f)
-                ftps = ImplicitFTP_TLS()
-                ftps.start(upload_host, upload_port, upload_user, upload_passwd)
-                ftps.upload(snapshot_pkl)
-                ftps.close()
-
-            
+                attempts = 0 
+                while attempts < 3:
+                    try:
+                        ftps = ImplicitFTP_TLS()
+                        ftps.start(upload_host, upload_port, upload_user, upload_passwd)
+                        ftps.upload(snapshot_pkl)
+                        ftps.close()
+                        break
+                    except TimeoutError as e:
+                        attempts += 1
+                        print(f"Timeout Error {e.args[0]}: {e.args[1]}")
+                    except:
+                        print(f"Unexpected error: {sys.exc_info()[0]}")
 
         # Evaluate metrics.
         if (snapshot_data is not None) and (len(metrics) > 0):
